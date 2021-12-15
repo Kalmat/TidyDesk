@@ -1,24 +1,30 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+import json
 import os
 import platform
-import sys
-import json
 import signal
+import sys
+import traceback
+
 import pygetwindow
+from PyQt5 import QtCore, QtWidgets, QtGui
+
 import bkgutils
 import qtutils
 import utils
-from PyQt5 import QtCore, QtWidgets, QtGui
-import traceback
-if "Linux" in platform.platform():
-    # Using pynput to avoid the need for root permissions when using keyboard/mouse modules
+
+_IS_WINDOWS = "Windows" in platform.platform()
+_IS_LINUX = "Linux" in platform.platform()
+_IS_MACOS = "Darwin" in platform.platform() or "macOS" in platform.platform()
+if _IS_LINUX or _IS_MACOS:
+    # Using pynput to avoid the need for root permissions when using keyboard/mouse modules in Linux
     from pynput import mouse
     from pynput import keyboard
-else:
-    # For some unknown reason, pynput forces to use a delay to allow moving/resizing the window
-    # This doesn't happen when dragging INSIDE the window, only when dragging on the title bar (moving the window)
+elif _IS_WINDOWS:
+    # For some unknown reasons, pynput forces to use a delay to allow moving/resizing the window
+    # This doesn't happen when dragging INSIDE the window, only when dragging the title bar (MOVING the window)
     import keyboard
     import mouse
 
@@ -41,16 +47,24 @@ class Window(QtWidgets.QMainWindow):
 
     showWidgetSig = QtCore.pyqtSignal()
     hideWidgetSig = QtCore.pyqtSignal()
+    highlightLabelSig = QtCore.pyqtSignal(int, int)
+    placeWindowSig = QtCore.pyqtSignal(int, int)
 
     def __init__(self, *args, **kwargs):
         QtWidgets.QMainWindow.__init__(self, *args, **kwargs)
 
         self.x, self.y, self.xmax, self.ymax = bkgutils.getWorkArea()
         qtutils.initDisplay(parent=self, pos=(self.x, self.y), size=(self.xmax, self.ymax), frameless=True,
-                            noFocus=True, aot=True, transparentBkg=True, caption=_CAPTION, icon=_SYSTEM_ICON)
+                            noFocus=True, aot= True, transparentBkg=True, caption=_CAPTION, icon=_SYSTEM_ICON)
         self.checkInstances(_CAPTION)
         self.loadSettings()
+        self.defineKeys()
         self.setupUI()
+
+        self.showWidgetSig.connect(self.showWidget)
+        self.hideWidgetSig.connect(self.hideWidget)
+        self.placeWindowSig.connect(self.placeWindow)
+        self.highlightLabelSig.connect(self.highlightLabel)
 
         self.key1Pressed = False
         self.key2Pressed = False
@@ -60,10 +74,7 @@ class Window(QtWidgets.QMainWindow):
         self.initPos = None
         self.prevHighlightLabel = None
 
-        self.showWidgetSig.connect(self.showWidget)
-        self.hideWidgetSig.connect(self.hideWidget)
-
-        if "Linux" in platform.platform():
+        if _IS_LINUX or _IS_MACOS:
             kListener = keyboard.Listener(
                 on_press=self.on_press,
                 on_release=self.on_release,
@@ -81,7 +92,7 @@ class Window(QtWidgets.QMainWindow):
             keyboard.on_press_key(self.key2_alt, self.keyPress)
             keyboard.on_release_key(self.key1, self.keyRelease)
             keyboard.on_release_key(self.key2, self.keyRelease)
-            keyboard.on_press_key(self.key2_alt, self.keyPress)
+            keyboard.on_release_key(self.key2_alt, self.keyRelease)
 
             mouse.hook(self.mouseHook)
 
@@ -112,22 +123,33 @@ class Window(QtWidgets.QMainWindow):
             pass
 
         self.sections = self.config["sections"]
-        self.key1Name = "ctrl"
-        self.key2Name = "windows/command"
-        if "Linux" in platform.platform():
+
+    def defineKeys(self):
+        if _IS_LINUX:
+            self.key1Name = "ctrl"
+            self.key2Name = "meta"
             self.key1 = keyboard.Key.ctrl_l
             self.key2 = keyboard.Key.cmd
-            self.key2_alt = keyboard.Key.cmd
+            self.key2_alt = keyboard.Key.ctrl_r
+        elif _IS_MACOS:
+            self.key1Name = "ctrl"
+            self.key2Name = "command"
+            self.key1 = keyboard.Key.ctrl_l
+            self.key2 = keyboard.Key.cmd
+            self.key2_alt = keyboard.Key.ctrl_r
         else:
+            self.key1Name = "ctrl"
+            self.key2Name = "windows"
             self.key1 = "ctrl"
             # " izquierda"??? This will require to translate the key name to every language!!!
             self.key2 = "windows izquierda"
+            # This generic key is not detected
             self.key2_alt = "windows"
 
     @QtCore.pyqtSlot()
     def reloadSettings(self):
         self.loadSettings()
-        self.setupUI()
+        self.setGrid(self.sections)
 
     def setupUI(self):
 
@@ -157,6 +179,11 @@ class Window(QtWidgets.QMainWindow):
     def setGrid(self, sections):
 
         self.labels = []
+
+        for i in range(self.myLayout.count()):
+            label = self.myLayout.itemAt(i).widget()
+            label.deleteLater()
+
         if sections in (-4, -5):
             rows = int((abs(sections) + 1) / 2)
             columns = int(abs(sections) / 2)
@@ -190,18 +217,6 @@ class Window(QtWidgets.QMainWindow):
                 self.myLayout.addWidget(label, 0, columns, 2, columnspan)
                 self.labels.append(label)
 
-    def keyPress(self, event):
-        if keyboard.is_pressed(self.key1) and (keyboard.is_pressed(self.key2) or keyboard.is_pressed(self.key2_alt)):
-            self.tidyMode = True
-            self.showWidgetSig.emit()
-            # mouse.hook(self.mouseHook)
-
-    def keyRelease(self, event):
-        if not keyboard.is_pressed(self.key1) or (not keyboard.is_pressed(self.key2) and not keyboard.is_pressed(self.key2_alt)):
-            self.tidyMode = False
-            self.hideWidgetSig.emit()
-            # mouse.unhook_all()
-
     @QtCore.pyqtSlot()
     def showWidget(self):
         if self.widget.isHidden():
@@ -211,6 +226,43 @@ class Window(QtWidgets.QMainWindow):
     def hideWidget(self):
         if self.widget.isVisible():
             self.widget.hide()
+            for widget in self.labels:
+                widget.setStyleSheet(_GRID_STYLE)
+
+    @QtCore.pyqtSlot(int, int)
+    def highlightLabel(self, x, y):
+        for widget in self.labels:
+            geom = widget.geometry()
+            if geom.x() < x < geom.x() + geom.width() and geom.y() < y < geom.y() + geom.height():
+                if self.prevHighlightLabel != widget:
+                    widget.setStyleSheet(_GRID_HIGHLIGHT_STYLE)
+                    if self.prevHighlightLabel is not None: self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
+                    self.prevHighlightLabel = widget
+                    break
+
+    @QtCore.pyqtSlot(int, int)
+    def placeWindow(self, x, y):
+        xAdj, yAdj, xGap, yGap, wGap, hGap = bkgutils.getWMAdjustments(_IS_MACOS, _LINE_WIDTH)
+        windows = pygetwindow.getWindowsAt(x + xAdj, y + yAdj)
+        for win in windows:
+            if win.title and win.title != _CAPTION and \
+                    (not _IS_LINUX or (_IS_LINUX and '_NET_WM_WINDOW_TYPE_DESKTOP' not in bkgutils.getAttributes(win._hWnd))):
+                geom = self.prevHighlightLabel.geometry()
+                win.resizeTo(geom.width() + wGap, geom.height() + hGap)
+                win.moveTo(geom.x() + xGap, geom.y() + yGap)
+                break
+        self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
+        self.prevHighlightLabel = None
+
+    def keyPress(self, event):
+        if keyboard.is_pressed(self.key1) and (keyboard.is_pressed(self.key2) or keyboard.is_pressed(self.key2_alt)):
+            self.tidyMode = True
+            self.showWidgetSig.emit()
+
+    def keyRelease(self, event):
+        if not keyboard.is_pressed(self.key1) or (not keyboard.is_pressed(self.key2) and not keyboard.is_pressed(self.key2_alt)):
+            self.tidyMode = False
+            self.hideWidgetSig.emit()
 
     def mouseHook(self, event):
 
@@ -231,19 +283,12 @@ class Window(QtWidgets.QMainWindow):
 
     def mouseMove(self, event):
         if self.tidyMode and self.clicked:
-            for widget in self.labels:
-                geom = widget.geometry()
-                if geom.x() < event.x < geom.x() + geom.width() and geom.y() < event.y < geom.y() + geom.height():
-                    if self.prevHighlightLabel != widget:
-                        widget.setStyleSheet(_GRID_HIGHLIGHT_STYLE)
-                        if self.prevHighlightLabel is not None: self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
-                        self.prevHighlightLabel = widget
-                        break
+            self.highlightLabelSig.emit(int(event.x), int(event.y))
 
     def on_press(self, key):
         if key == self.key1:
             self.key1Pressed = True
-        elif key == self.key2:
+        elif key in (self.key2, self.key2_alt):
             self.key2Pressed = True
         if self.key1Pressed and self.key2Pressed:
             self.tidyMode = True
@@ -252,7 +297,7 @@ class Window(QtWidgets.QMainWindow):
     def on_release(self, key):
         if key == self.key1:
             self.key1Pressed = False
-        elif key == self.key2:
+        elif key in (self.key2, self.key2_alt):
             self.key2Pressed = False
         if not self.key1Pressed or not self.key2Pressed:
             self.tidyMode = False
@@ -260,14 +305,7 @@ class Window(QtWidgets.QMainWindow):
 
     def on_move(self, x, y):
         if self.tidyMode and self.clicked:
-            for widget in self.labels:
-                geom = widget.geometry()
-                if geom.x() < x < geom.x() + geom.width() and geom.y() < y < geom.y() + geom.height():
-                    if self.prevHighlightLabel != widget:
-                        widget.setStyleSheet(_GRID_HIGHLIGHT_STYLE)
-                        if self.prevHighlightLabel is not None: self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
-                        self.prevHighlightLabel = widget
-                        break
+            self.highlightLabelSig.emit(int(x), int(y))
 
     def on_click(self, x, y, button, pressed):
         if button == mouse.Button.left:
@@ -280,46 +318,10 @@ class Window(QtWidgets.QMainWindow):
         self.clicked = True
         self.initPos = (x, y)
 
-    def _get_wm(self):
-        # https://stackoverflow.com/questions/3333243/how-can-i-check-with-python-which-window-manager-is-running
-        return os.environ.get('XDG_CURRENT_DESKTOP') or ""
-
     def buttonUp(self, x, y):
         self.clicked = False
         if self.tidyMode and self.initPos != (x, y) and self.prevHighlightLabel is not None:
-            wm = self._get_wm()
-            if "GNOME" in wm:
-                # PyQt5 geometry is not correct in Ubuntu/GNOME?!?!?!
-                xGap = _LINE_WIDTH * 6
-                yGap = 0
-                wGap = _LINE_WIDTH * 6
-                hGap = _LINE_WIDTH * 7
-            else:
-                if "Cinnamon" in wm:
-                    y = y + 20
-                    xGap = 0
-                    yGap = + _LINE_WIDTH * 3
-                    wGap = 0
-                    hGap = - _LINE_WIDTH * 3
-                else:
-                    xGap = - _LINE_WIDTH
-                    yGap = 0
-                    wGap = _LINE_WIDTH * 2
-                    hGap = _LINE_WIDTH
-
-            geom = self.prevHighlightLabel.geometry()
-            windows = pygetwindow.getWindowsAt(x, y)
-            for win in windows:
-                if win.title and win.title != _CAPTION and \
-                        ("Linux" in platform.platform() and '_NET_WM_WINDOW_TYPE_DESKTOP' not in bkgutils.getAttributes(win._hWnd)):
-                    # For some unknown reason, pynput forces to use a delay to allow moving/resizing the window
-                    # This doesn't happen when dragging INSIDE the window, only when dragging on the title bar (moving the window)
-                    # time.sleep(0.3)
-                    win.resizeTo(geom.width() + wGap, geom.height() + hGap)
-                    win.moveTo(geom.x() + xGap, geom.y() + yGap)
-                    break
-            self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
-            self.prevHighlightLabel = None
+            self.placeWindowSig.emit(int(x), int(y))
 
     @QtCore.pyqtSlot()
     def showHelp(self):
@@ -328,8 +330,12 @@ class Window(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def closeAll(self):
         try:
-            self.kListener.stop()
-            self.mListener.stop()
+            if _IS_LINUX or _IS_MACOS:
+                self.kListener.stop()
+                self.mListener.stop()
+            elif _IS_WINDOWS:
+                keyboard.unhook_all()
+                mouse.unhook_all()
         except: pass
         QtWidgets.QApplication.quit()
 
@@ -343,10 +349,6 @@ class Config(QtWidgets.QWidget):
     def __init__(self, parent, config):
         QtWidgets.QWidget.__init__(self, parent)
 
-        self.isWindows = "Windows" in platform.platform()
-        self.isLinux = "Linux" in platform.platform()
-        self.isMacOS = "macOS" in platform.platform() or "Darwin" in platform.platform()
-
         self.config = config
         self.setupUI()
 
@@ -358,7 +360,7 @@ class Config(QtWidgets.QWidget):
         self.iconNotSelected = QtGui.QIcon(_ICON_NOT_SELECTED)
 
         self.contextMenu = QtWidgets.QMenu(self)
-        if self.isWindows:
+        if _IS_WINDOWS:
             self.contextMenu.setStyleSheet("""
                 QMenu {border: 1px inset #666; font-size: 18px; background-color: #333; color: #fff; padding: 10px;}
                 QMenu:selected {background-color: #666; color: #fff;}""")

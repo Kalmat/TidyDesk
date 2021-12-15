@@ -42,7 +42,7 @@ def initDisplay(parent, pos=(None, None), size=(None, None), setAsWallpaper=Fals
                 xmax is None or ymax is None:
             parent.setFixedSize(xmax, ymax)
         else:
-            parent.showFullScreen()
+            # parent.showFullScreen()
             xmax, ymax = screenSize.width(), screenSize.height()
 
     if aot:

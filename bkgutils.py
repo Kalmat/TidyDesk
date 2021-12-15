@@ -333,3 +333,48 @@ elif "macOS" in platform.platform() or "Darwin" in platform.platform():
         #                                                       [AppKit.NSWorkspaceDesktopImageScalingKey,
         #                                                        AppKit.NSWorkspaceDesktopImageFillColorKey])
         # sharedSpace.setDesktopImageURL_forScreen_options_error_(img, mainScreen, optDict, None)
+
+    def getWorkArea():
+        work_area = AppKit.NSScreen.mainScreen().visibleFrame()
+        return int(work_area.origin.x), 0, int(work_area.size.width), int(work_area.size.height)
+
+
+def get_wm():
+    # https://stackoverflow.com/questions/3333243/how-can-i-check-with-python-which-window-manager-is-running
+    return os.environ.get('XDG_CURRENT_DESKTOP') or ""
+
+
+def getWMAdjustments(is_macos, line_width):
+    wm = get_wm()
+    if "GNOME" in wm:
+        # PyQt5 geometry is not correct in Ubuntu/GNOME?!?!?!
+        xAdj = 0
+        yAdj = 0
+        xGap = line_width * 6
+        yGap = 0
+        wGap = line_width * 6
+        hGap = line_width * 7
+    elif "Cinnamon" in wm:
+        # Mouse position does not fit windowsAt coordinates in Cinnamon
+        xAdj = 0
+        yAdj = 20
+        xGap = 0
+        yGap = line_width * 3
+        wGap = 0
+        hGap = - line_width * 3
+    elif is_macos:
+        xAdj = 0
+        yAdj = 0
+        xGap = 0
+        yGap = line_width * 3
+        wGap = 0
+        hGap = 0
+    else:
+        xAdj = 0
+        yAdj = 0
+        xGap = - line_width
+        yGap = 0
+        wGap = line_width * 2
+        hGap = line_width
+
+    return xAdj, yAdj, xGap, yGap, wGap, hGap

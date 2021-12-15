@@ -1,8 +1,8 @@
-# TidyDesktop
+# TidyDesk
 
 ## What is this for
 
-This is a python3 script, based on PyQt5, for windows 8-10.
+This is a python3 script, based on PyQt5, for windows 8-10 and Linux GNOME/Cinnamon. It also works in macOS (Catalina+), but since it uses Apple Script, it's not very fluent and needs to be granted on Security&Privacy/Accessibility options.
 
 It will allow you to easily arrange all your desktop windows, using different grids to fit your needs according to the number of windows and desired layout 
 
@@ -20,4 +20,4 @@ To arrange windows, press ctrl+alt keys together to show the grid on screen. The
 
 #### IMPORTANT
 
-Move, and especially, resize behaviors strongly depend on every application rules. So, it's possible some windows/applications don't perfectly adjust to the desired position and size, or even do not react at all.
+Move and, especially, resize behaviors strongly depend on every application rules. So, it's possible some windows/applications don't perfectly adjust to the desired position and size, or even do not react at all.
