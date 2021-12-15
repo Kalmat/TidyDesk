@@ -181,6 +181,14 @@ def win_run_as_admin(argv=None, debug=False, force_admin=True):
     return None
 
 
+def linux_run_as_admin():
+    euid = os.geteuid()
+    if euid != 0:
+        args = ['sudo', sys.executable] + sys.argv + [os.environ]
+        # the next line replaces the currently-running process with the sudo
+        os.execlpe('sudo', *args)
+
+
 def get_screen_pos(name=None):
     # Position doesn't take into account border width and title bar height
     try:

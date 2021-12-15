@@ -11,9 +11,16 @@ import bkgutils
 import qtutils
 import utils
 from PyQt5 import QtCore, QtWidgets, QtGui
-import keyboard
-import mouse
 import traceback
+if "Linux" in platform.platform():
+    # Using pynput to avoid the need for root permissions when using keyboard/mouse modules
+    from pynput import mouse
+    from pynput import keyboard
+else:
+    # For some unknown reason, pynput forces to use a delay to allow moving/resizing the window
+    # This doesn't happen when dragging INSIDE the window, only when dragging on the title bar (moving the window)
+    import keyboard
+    import mouse
 
 
 _CAPTION = "TidyDesk"
@@ -32,37 +39,56 @@ _GRID_HIGHLIGHT_STYLE = "background-color: transparent; border: %spx solid %s;" 
 
 class Window(QtWidgets.QMainWindow):
 
+    showWidgetSig = QtCore.pyqtSignal()
+    hideWidgetSig = QtCore.pyqtSignal()
+
     def __init__(self, *args, **kwargs):
         QtWidgets.QMainWindow.__init__(self, *args, **kwargs)
 
-        self.xmax, self.ymax = bkgutils.getWorkArea()
-        qtutils.initDisplay(parent=self, pos=(0, 0), size=(self.xmax, self.ymax), frameless=True,
+        self.x, self.y, self.xmax, self.ymax = bkgutils.getWorkArea()
+        qtutils.initDisplay(parent=self, pos=(self.x, self.y), size=(self.xmax, self.ymax), frameless=True,
                             noFocus=True, aot=True, transparentBkg=True, caption=_CAPTION, icon=_SYSTEM_ICON)
         self.checkInstances(_CAPTION)
         self.loadSettings()
         self.setupUI()
 
-        self.ctrlPressed = False
-        self.cmdPressed = False
+        self.key1Pressed = False
+        self.key2Pressed = False
         self.tidyMode = False
         self.clicked = False
         self.ignoreUP = False
         self.initPos = None
         self.prevHighlightLabel = None
 
-        keyboard.on_press_key(self.key1, self.keyPress)
-        keyboard.on_press_key(self.key2, self.keyPress)
-        keyboard.on_release_key(self.key1, self.keyRelease)
-        keyboard.on_release_key(self.key2, self.keyRelease)
+        self.showWidgetSig.connect(self.showWidget)
+        self.hideWidgetSig.connect(self.hideWidget)
 
-        # mouse.on_button(self.buttonDown, (), mouse.LEFT, mouse.DOWN)
-        # mouse.on_button(self.buttonUp, (), mouse.LEFT, mouse.UP)
+        if "Linux" in platform.platform():
+            kListener = keyboard.Listener(
+                on_press=self.on_press,
+                on_release=self.on_release,
+                suppress=False)
+            kListener.start()
+
+            mListener = mouse.Listener(
+                on_move=self.on_move,
+                on_click=self.on_click,
+                suppress=False)
+            mListener.start()
+        else:
+            keyboard.on_press_key(self.key1, self.keyPress)
+            keyboard.on_press_key(self.key2, self.keyPress)
+            keyboard.on_press_key(self.key2_alt, self.keyPress)
+            keyboard.on_release_key(self.key1, self.keyRelease)
+            keyboard.on_release_key(self.key2, self.keyRelease)
+            keyboard.on_press_key(self.key2_alt, self.keyPress)
+
+            mouse.hook(self.mouseHook)
 
         self.menu = Config(self, self.config)
         self.menu.reloadSettings.connect(self.reloadSettings)
         self.menu.closeAll.connect(self.closeAll)
         self.menu.showHelp.connect(self.showHelp)
-        self.menu.show()
 
     def checkInstances(self, name):
         instances = 0
@@ -86,8 +112,17 @@ class Window(QtWidgets.QMainWindow):
             pass
 
         self.sections = self.config["sections"]
-        self.key1 = self.config["key1"]
-        self.key2 = self.config["key2"]
+        self.key1Name = "ctrl"
+        self.key2Name = "windows/command"
+        if "Linux" in platform.platform():
+            self.key1 = keyboard.Key.ctrl_l
+            self.key2 = keyboard.Key.cmd
+            self.key2_alt = keyboard.Key.cmd
+        else:
+            self.key1 = "ctrl"
+            # " izquierda"??? This will require to translate the key name to every language!!!
+            self.key2 = "windows izquierda"
+            self.key2_alt = "windows"
 
     @QtCore.pyqtSlot()
     def reloadSettings(self):
@@ -96,11 +131,11 @@ class Window(QtWidgets.QMainWindow):
 
     def setupUI(self):
 
-        self.setGeometry(0, 0, self.xmax, self.ymax)
+        self.setGeometry(self.x, self.y, self.xmax, self.ymax)
 
         self.widget = QtWidgets.QWidget()
         self.widget.hide()
-        self.widget.setGeometry(0, 0, self.xmax, self.ymax)
+        self.widget.setGeometry(self.x, self.y, self.xmax, self.ymax)
 
         self.myLayout = QtWidgets.QGridLayout()
         self.myLayout.setContentsMargins(0, 0, 0, 0)
@@ -111,10 +146,10 @@ class Window(QtWidgets.QMainWindow):
 
         self.msgBox = QtWidgets.QMessageBox()
         self.msgBox.setIcon(QtWidgets.QMessageBox.Information)
-        self.msgBox.setText("Press activation keys: %s + %s to show grid, then drag and drop the windows" % (self.key1, self.key2))
+        self.msgBox.setText("Press activation keys: %s + %s to show grid, then drag and drop the windows" % (self.key1Name, self.key2Name))
         self.msgBox.setWindowTitle("TidyDesk Help")
         self.msgBox.setDetailedText("Select your desired grid (layout) configuration\n"
-                                    "Press activation keys: %s + %s to show grid\n" % (self.key1, self.key2) +
+                                    "Press activation keys: %s + %s to show grid\n" % (self.key1Name, self.key2Name) +
                                     "Drag and drop any window inside the desired grid section while keeping activation keys pressed\n"
                                     "The window will automatically adjust to the section where the mouse pointer is over")
         self.msgBox.setStandardButtons(QtWidgets.QMessageBox.Ok)
@@ -156,18 +191,26 @@ class Window(QtWidgets.QMainWindow):
                 self.labels.append(label)
 
     def keyPress(self, event):
-        if keyboard.is_pressed(self.key1) and keyboard.is_pressed(self.key2):
+        if keyboard.is_pressed(self.key1) and (keyboard.is_pressed(self.key2) or keyboard.is_pressed(self.key2_alt)):
             self.tidyMode = True
-            if self.widget.isHidden():
-                self.widget.show()
-                mouse.hook(self.mouseHook)
+            self.showWidgetSig.emit()
+            # mouse.hook(self.mouseHook)
 
     def keyRelease(self, event):
-        if not keyboard.is_pressed(self.key1) or not keyboard.is_pressed(self.key2):
+        if not keyboard.is_pressed(self.key1) or (not keyboard.is_pressed(self.key2) and not keyboard.is_pressed(self.key2_alt)):
             self.tidyMode = False
-            if self.widget.isVisible():
-                self.widget.hide()
-                mouse.unhook_all()
+            self.hideWidgetSig.emit()
+            # mouse.unhook_all()
+
+    @QtCore.pyqtSlot()
+    def showWidget(self):
+        if self.widget.isHidden():
+            self.widget.show()
+
+    @QtCore.pyqtSlot()
+    def hideWidget(self):
+        if self.widget.isVisible():
+            self.widget.hide()
 
     def mouseHook(self, event):
 
@@ -180,13 +223,11 @@ class Window(QtWidgets.QMainWindow):
                     self.ignoreUP = True
                 elif event.event_type == mouse.DOWN:
                     self.ignoreUP = False
-                    self.buttonDown(event)
+                    x, y = mouse.get_position()
+                    self.buttonDown(x, y)
                 elif event.event_type == mouse.UP and not self.ignoreUP:
-                    self.buttonUp(event)
-
-    def buttonDown(self, event):
-        self.clicked = True
-        self.initPos = mouse.get_position()
+                    x, y = mouse.get_position()
+                    self.buttonUp(x, y)
 
     def mouseMove(self, event):
         if self.tidyMode and self.clicked:
@@ -199,21 +240,86 @@ class Window(QtWidgets.QMainWindow):
                         self.prevHighlightLabel = widget
                         break
 
-    def buttonUp(self, event):
+    def on_press(self, key):
+        if key == self.key1:
+            self.key1Pressed = True
+        elif key == self.key2:
+            self.key2Pressed = True
+        if self.key1Pressed and self.key2Pressed:
+            self.tidyMode = True
+            self.showWidgetSig.emit()
+
+    def on_release(self, key):
+        if key == self.key1:
+            self.key1Pressed = False
+        elif key == self.key2:
+            self.key2Pressed = False
+        if not self.key1Pressed or not self.key2Pressed:
+            self.tidyMode = False
+            self.hideWidgetSig.emit()
+
+    def on_move(self, x, y):
+        if self.tidyMode and self.clicked:
+            for widget in self.labels:
+                geom = widget.geometry()
+                if geom.x() < x < geom.x() + geom.width() and geom.y() < y < geom.y() + geom.height():
+                    if self.prevHighlightLabel != widget:
+                        widget.setStyleSheet(_GRID_HIGHLIGHT_STYLE)
+                        if self.prevHighlightLabel is not None: self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
+                        self.prevHighlightLabel = widget
+                        break
+
+    def on_click(self, x, y, button, pressed):
+        if button == mouse.Button.left:
+            if pressed:
+                self.buttonDown(x, y)
+            else:
+                self.buttonUp(x, y)
+
+    def buttonDown(self, x, y):
+        self.clicked = True
+        self.initPos = (x, y)
+
+    def _get_wm(self):
+        # https://stackoverflow.com/questions/3333243/how-can-i-check-with-python-which-window-manager-is-running
+        return os.environ.get('XDG_CURRENT_DESKTOP') or ""
+
+    def buttonUp(self, x, y):
         self.clicked = False
-        x, y = mouse.get_position()
         if self.tidyMode and self.initPos != (x, y) and self.prevHighlightLabel is not None:
-            self.placeWindow(x, y, self.prevHighlightLabel.geometry())
+            wm = self._get_wm()
+            if "GNOME" in wm:
+                # PyQt5 geometry is not correct in Ubuntu/GNOME?!?!?!
+                xGap = _LINE_WIDTH * 6
+                yGap = 0
+                wGap = _LINE_WIDTH * 6
+                hGap = _LINE_WIDTH * 7
+            else:
+                if "Cinnamon" in wm:
+                    y = y + 20
+                    xGap = 0
+                    yGap = + _LINE_WIDTH * 3
+                    wGap = 0
+                    hGap = - _LINE_WIDTH * 3
+                else:
+                    xGap = - _LINE_WIDTH
+                    yGap = 0
+                    wGap = _LINE_WIDTH * 2
+                    hGap = _LINE_WIDTH
+
+            geom = self.prevHighlightLabel.geometry()
+            windows = pygetwindow.getWindowsAt(x, y)
+            for win in windows:
+                if win.title and win.title != _CAPTION and \
+                        ("Linux" in platform.platform() and '_NET_WM_WINDOW_TYPE_DESKTOP' not in bkgutils.getAttributes(win._hWnd)):
+                    # For some unknown reason, pynput forces to use a delay to allow moving/resizing the window
+                    # This doesn't happen when dragging INSIDE the window, only when dragging on the title bar (moving the window)
+                    # time.sleep(0.3)
+                    win.resizeTo(geom.width() + wGap, geom.height() + hGap)
+                    win.moveTo(geom.x() + xGap, geom.y() + yGap)
+                    break
             self.prevHighlightLabel.setStyleSheet(_GRID_STYLE)
             self.prevHighlightLabel = None
-
-    def placeWindow(self, x, y, geom):
-
-        for win in pygetwindow.getWindowsAt(x, y):
-            if win.title and win.title != _CAPTION:
-                win.resizeTo(geom.width() + _LINE_WIDTH * 2, geom.height() + _LINE_WIDTH)
-                win.moveTo(geom.x() - _LINE_WIDTH, geom.y())
-                break
 
     @QtCore.pyqtSlot()
     def showHelp(self):
@@ -222,13 +328,14 @@ class Window(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def closeAll(self):
         try:
-            keyboard.unhook_all()
-            mouse.unhook_all()
+            self.kListener.stop()
+            self.mListener.stop()
         except: pass
         QtWidgets.QApplication.quit()
 
 
 class Config(QtWidgets.QWidget):
+
     reloadSettings = QtCore.pyqtSignal()
     closeAll = QtCore.pyqtSignal()
     showHelp = QtCore.pyqtSignal()
@@ -245,7 +352,7 @@ class Config(QtWidgets.QWidget):
 
     def setupUI(self):
 
-        self.setGeometry(-1, -1, 1, 1)
+        # self.setGeometry(-1, -1, 1, 1)
 
         self.iconSelected = QtGui.QIcon(_ICON_SELECTED)
         self.iconNotSelected = QtGui.QIcon(_ICON_NOT_SELECTED)

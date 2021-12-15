@@ -16,13 +16,5 @@
         "11": 11,
         "12": 12
     },
-    "sections": 3,
-    "Available_keys": [
-        "alt",
-        "ctrl",
-        "shift",
-        "alt gr"
-    ],
-    "key1": "ctrl",
-    "key2": "alt"
+    "sections": 6
 }

@@ -1,0 +1,12 @@
+pygetwindow
+PyQt5; sys_platform == 'windows'
+keyboard; sys_platform == 'windows'
+mouse; sys_platform == 'windows'
+pywin32; sys_platform == 'windows'
+pywintypes; sys_platform == 'windows'
+PyQt5; sys_platform == 'linux'
+xlib; sys_platform == 'linux'
+ewmh; sys_platform == 'linux'
+pynput; sys_platform == 'linux'
+PyQt5; sys_platform == 'darwin'
+pyobjc; sys_platform == 'darwin'

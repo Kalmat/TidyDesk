@@ -6,15 +6,13 @@ import platform
 import subprocess
 from typing import List
 import ctypes
-
-import win32api
-
 import utils
 
 if "Windows" in platform.platform():
     import pywintypes
     import win32con
     import win32gui
+    import win32api
 
     def findWindowHandlesB(parent: int = None, window_class: str = None, title: str = None) -> List[int]:
         # https://stackoverflow.com/questions/56973912/how-can-i-set-windows-10-desktop-background-with-smooth-transition
@@ -143,17 +141,19 @@ if "Windows" in platform.platform():
     def getWorkArea():
         monitor_info = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))
         work_area = monitor_info.get("Work")
-        return work_area[2], work_area[3]
+        return work_area[0], work_area[1], work_area[2], work_area[3]
 
 elif "Linux" in platform.platform():
     import Xlib
     import Xlib.X
     import Xlib.display
-    from pymouse import PyMouse
+    import ewmh
+    from pynput import mouse
 
     DISP = Xlib.display.Display()
     SCREEN = DISP.screen()
     ROOT = SCREEN.root
+    EWMH = ewmh.EWMH(_display=DISP, root=ROOT)
 
     def findWindowHandles(parent=None, window_class="", title=""):
 
@@ -180,7 +180,7 @@ elif "Linux" in platform.platform():
 
     def sendBehind(name):
         # Mint/Cinnamon: just clicking on the desktop, it comes up, sending the window/wallpaper to bottom!
-        m = PyMouse()
+        m = mouse.Controller()
         m.click(SCREEN.width_in_pixels - 1, 300, 1)
 
         # Non-working attempts for Ubuntu/GNOME using Xlib
@@ -287,6 +287,14 @@ elif "Linux" in platform.platform():
             return True
         except:
             return False
+
+    def getWorkArea():
+        work_area = EWMH.getWorkArea()
+        return work_area[0], work_area[1], work_area[2], work_area[3]
+
+    def getAttributes(win):
+        return EWMH.getWmWindowType(win, str=True)
+
 
 elif "macOS" in platform.platform() or "Darwin" in platform.platform():
     import AppKit

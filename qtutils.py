@@ -30,7 +30,7 @@ def initDisplay(parent, pos=(None, None), size=(None, None), setAsWallpaper=Fals
             parent.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.CustomizeWindowHint | QtCore.Qt.WindowStaysOnBottomHint | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowDoesNotAcceptFocus)
         else:
             parent.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.CustomizeWindowHint | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowDoesNotAcceptFocus)
-        parent.showFullScreen()
+            parent.showFullScreen()
         xmax, ymax = screenSize.width(), screenSize.height()
     else:
         if frameless:
@@ -54,7 +54,6 @@ def initDisplay(parent, pos=(None, None), size=(None, None), setAsWallpaper=Fals
 
     if noFocus:
         if "Linux" in platform.platform():
-            parent.setAttribute(QtCore.Qt.WA_X11NetWmWindowTypeDesktop)
             parent.setAttribute(QtCore.Qt.WA_X11DoNotAcceptFocus)
         parent.setFocusPolicy(QtCore.Qt.NoFocus)
         parent.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
