@@ -8,12 +8,11 @@ import signal
 import sys
 import traceback
 
-import pygetwindow
-from PyQt5 import QtCore, QtWidgets, QtGui
-
 import bkgutils
-import qtutils
 import utils
+import pygetwindowmp
+import qtutils
+from PyQt5 import QtCore, QtWidgets, QtGui
 
 _IS_WINDOWS = "Windows" in platform.platform()
 _IS_LINUX = "Linux" in platform.platform()
@@ -24,16 +23,16 @@ if _IS_LINUX or _IS_MACOS:
     from pynput import keyboard
 elif _IS_WINDOWS:
     # For some unknown reasons, pynput forces to use a delay to allow moving/resizing the window
-    # This doesn't happen when dragging INSIDE the window, only when dragging the title bar (MOVING the window)
+    # This doesn't happen when dragging INSIDE the window, only when dragging the title bar (actually MOVING the window)
     import keyboard
     import mouse
 
 
 _CAPTION = "TidyDesk"
-_CONFIG_ICON = utils.resource_path("resources/tidy.png")
-_SYSTEM_ICON = utils.resource_path("resources/tidy.ico")
-_ICON_SELECTED = utils.resource_path("resources/tick.png")
-_ICON_NOT_SELECTED = utils.resource_path("resources/notick.png")
+_CONFIG_ICON = utils.resource_path(__file__, "resources/tidy.png")
+_SYSTEM_ICON = utils.resource_path(__file__, "resources/tidy.ico")
+_ICON_SELECTED = utils.resource_path(__file__, "resources/tick.png")
+_ICON_NOT_SELECTED = utils.resource_path(__file__, "resources/notick.png")
 _SETTINGS_FILE = "settings.json"
 
 _LINE_WIDTH = 8
@@ -53,9 +52,9 @@ class Window(QtWidgets.QMainWindow):
     def __init__(self, *args, **kwargs):
         QtWidgets.QMainWindow.__init__(self, *args, **kwargs)
 
-        self.x, self.y, self.xmax, self.ymax = bkgutils.getWorkArea()
-        qtutils.initDisplay(parent=self, pos=(self.x, self.y), size=(self.xmax, self.ymax), frameless=True,
-                            noFocus=True, aot= True, transparentBkg=True, caption=_CAPTION, icon=_SYSTEM_ICON)
+        self.xpos, self.ypos, self.xmax, self.ymax = bkgutils.getWorkArea()
+        qtutils.initDisplay(parent=self, pos=(self.xpos, self.ypos), size=(self.xmax, self.ymax), frameless=True,
+                            noFocus=True, aot= True, opacity=0, caption=_CAPTION, icon=_SYSTEM_ICON)
         self.checkInstances(_CAPTION)
         self.loadSettings()
         self.defineKeys()
@@ -71,7 +70,8 @@ class Window(QtWidgets.QMainWindow):
         self.tidyMode = False
         self.clicked = False
         self.ignoreUP = False
-        self.initPos = None
+        self.clickedWin = None
+        self.prevPos = None
         self.prevHighlightLabel = None
 
         if _IS_LINUX or _IS_MACOS:
@@ -103,7 +103,7 @@ class Window(QtWidgets.QMainWindow):
 
     def checkInstances(self, name):
         instances = 0
-        for win in pygetwindow.getWindowsWithTitle(name):
+        for win in pygetwindowmp.getWindowsWithTitle(name):
             if ".py" not in win.title:
                 instances += 1
         if instances > 1:
@@ -114,7 +114,7 @@ class Window(QtWidgets.QMainWindow):
         if os.path.isfile(_SETTINGS_FILE):
             file = _SETTINGS_FILE
         else:
-            file = utils.resource_path("resources/" + _SETTINGS_FILE)
+            file = utils.resource_path(__file__, "resources/" + _SETTINGS_FILE)
 
         try:
             with open(file, encoding='UTF-8') as file:
@@ -153,11 +153,11 @@ class Window(QtWidgets.QMainWindow):
 
     def setupUI(self):
 
-        self.setGeometry(self.x, self.y, self.xmax, self.ymax)
+        self.setGeometry(self.xpos, self.ypos, self.xmax, self.ymax)
 
         self.widget = QtWidgets.QWidget()
         self.widget.hide()
-        self.widget.setGeometry(self.x, self.y, self.xmax, self.ymax)
+        self.widget.setGeometry(self.xpos, self.ypos, self.xmax, self.ymax)
 
         self.myLayout = QtWidgets.QGridLayout()
         self.myLayout.setContentsMargins(0, 0, 0, 0)
@@ -228,6 +228,7 @@ class Window(QtWidgets.QMainWindow):
             self.widget.hide()
             for widget in self.labels:
                 widget.setStyleSheet(_GRID_STYLE)
+        self.prevHighlightLabel = None
 
     @QtCore.pyqtSlot(int, int)
     def highlightLabel(self, x, y):
@@ -243,7 +244,7 @@ class Window(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(int, int)
     def placeWindow(self, x, y):
         xAdj, yAdj, xGap, yGap, wGap, hGap = bkgutils.getWMAdjustments(_IS_MACOS, _LINE_WIDTH)
-        windows = pygetwindow.getWindowsAt(x + xAdj, y + yAdj)
+        windows = pygetwindowmp.getWindowsAt(x + xAdj, y + yAdj)
         for win in windows:
             if win.title and win.title != _CAPTION and \
                     (not _IS_LINUX or (_IS_LINUX and '_NET_WM_WINDOW_TYPE_DESKTOP' not in bkgutils.getAttributes(win._hWnd))):
@@ -283,7 +284,11 @@ class Window(QtWidgets.QMainWindow):
 
     def mouseMove(self, event):
         if self.tidyMode and self.clicked:
-            self.highlightLabelSig.emit(int(event.x), int(event.y))
+            if self.prevPos is None or self.clickedWin is None:
+                self.clickedWin = pygetwindowmp.getActiveWindow()
+                self.prevPos = self.clickedWin.topleft
+            if self.prevPos != self.clickedWin.topleft:
+                self.highlightLabelSig.emit(int(event.x), int(event.y))
 
     def on_press(self, key):
         if key == self.key1:
@@ -305,7 +310,11 @@ class Window(QtWidgets.QMainWindow):
 
     def on_move(self, x, y):
         if self.tidyMode and self.clicked:
-            self.highlightLabelSig.emit(int(x), int(y))
+            if self.prevPos is None or self.clickedWin is None:
+                self.clickedWin = pygetwindowmp.getActiveWindow()
+                self.prevPos = self.clickedWin.topleft
+            if self.prevPos != self.clickedWin.topleft:
+                self.highlightLabelSig.emit(int(x), int(y))
 
     def on_click(self, x, y, button, pressed):
         if button == mouse.Button.left:
@@ -316,12 +325,18 @@ class Window(QtWidgets.QMainWindow):
 
     def buttonDown(self, x, y):
         self.clicked = True
-        self.initPos = (x, y)
+        if self.tidyMode:
+            self.highlightLabelSig.emit(int(x), int(y))
 
     def buttonUp(self, x, y):
         self.clicked = False
-        if self.tidyMode and self.initPos != (x, y) and self.prevHighlightLabel is not None:
-            self.placeWindowSig.emit(int(x), int(y))
+        if self.tidyMode:
+            if self.clickedWin and self.prevPos and self.prevPos != self.clickedWin.topleft and \
+                    self.prevHighlightLabel is not None:
+                self.placeWindowSig.emit(int(x), int(y))
+            self.hideWidgetSig.emit()
+        self.prevPos = None
+        self.clickedWin = None
 
     @QtCore.pyqtSlot()
     def showHelp(self):
@@ -354,7 +369,7 @@ class Config(QtWidgets.QWidget):
 
     def setupUI(self):
 
-        # self.setGeometry(-1, -1, 1, 1)
+        self.setGeometry(-1, -1, 1, 1)
 
         self.iconSelected = QtGui.QIcon(_ICON_SELECTED)
         self.iconNotSelected = QtGui.QIcon(_ICON_NOT_SELECTED)
@@ -407,7 +422,7 @@ class Config(QtWidgets.QWidget):
         if os.path.isfile(_SETTINGS_FILE):
             file = _SETTINGS_FILE
         else:
-            file = utils.resource_path("resources/" + _SETTINGS_FILE)
+            file = utils.resource_path(__file__, "resources/" + _SETTINGS_FILE)
         try:
             with open(file, "w", encoding='UTF-8') as file:
                 json.dump(self.config, file, ensure_ascii=False, sort_keys=False, indent=4)

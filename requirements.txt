@@ -1,11 +1,11 @@
-PyQt5
-pygetwindow
-keyboard; sys_platform == 'windows'
-mouse; sys_platform == 'windows'
-pywin32; sys_platform == 'windows'
-pywintypes; sys_platform == 'windows'
-xlib; sys_platform == 'linux'
-ewmh; sys_platform == 'linux'
-pynput; sys_platform == 'linux'
-pyobjc; sys_platform == 'darwin'
-pynput; sys_platform == 'darwin'
+kalmatools==0.0.1
+pygetwindowmp==0.0.9
+PyQt5==5.15.4
+keyboard==0.13.5; sys_platform == 'windows'
+mouse==0.7.1; sys_platform == 'windows'
+pywin32==302; sys_platform == 'windows'
+xlib==0.21; sys_platform == 'linux'
+ewmh==0.1.6;; sys_platform == 'linux'
+pynput==1.7.5; sys_platform == 'linux'
+pyobjc==8.1; sys_platform == 'darwin'
+pynput==1.7.5; sys_platform == 'darwin'
