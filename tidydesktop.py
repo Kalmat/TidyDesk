@@ -373,6 +373,9 @@ class Config(QtWidgets.QWidget):
 
         self.iconSelected = QtGui.QIcon(_ICON_SELECTED)
         self.iconNotSelected = QtGui.QIcon(_ICON_NOT_SELECTED)
+        self.iconGrid = {}
+        for grid in self.config["Available_sections"].keys():
+            self.iconGrid[grid] = QtGui.QIcon(utils.resource_path(__file__, "resources/" + grid + ".png"))
 
         self.contextMenu = QtWidgets.QMenu(self)
         if _IS_WINDOWS:
@@ -399,14 +402,14 @@ class Config(QtWidgets.QWidget):
         if selected:
             act.setIcon(self.iconSelected)
         else:
-            act.setIcon(self.iconNotSelected)
+            act.setIcon(self.iconGrid[text])
 
     def execGridAct(self, text, sections):
         for option in self.gridAct.actions():
             if option.text() == text:
                 option.setIcon(self.iconSelected)
-            else:
-                option.setIcon(self.iconNotSelected)
+            elif self.config["Available_sections"][option.text()] == self.config["sections"]:
+                option.setIcon(self.iconGrid[option.text()])
         self.gridAct.update()
         self.config["sections"] = sections
         self.saveSettings()
