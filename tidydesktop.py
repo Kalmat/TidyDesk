@@ -10,7 +10,7 @@ import traceback
 
 import bkgutils
 import utils
-import pygetwindowmp
+import pywinctl
 import qtutils
 from PyQt5 import QtCore, QtWidgets, QtGui
 
@@ -32,7 +32,6 @@ _CAPTION = "TidyDesk"
 _CONFIG_ICON = utils.resource_path(__file__, "resources/tidy.png")
 _SYSTEM_ICON = utils.resource_path(__file__, "resources/tidy.ico")
 _ICON_SELECTED = utils.resource_path(__file__, "resources/tick.png")
-_ICON_NOT_SELECTED = utils.resource_path(__file__, "resources/notick.png")
 _SETTINGS_FILE = "settings.json"
 
 _LINE_WIDTH = 8
@@ -54,7 +53,7 @@ class Window(QtWidgets.QMainWindow):
 
         self.xpos, self.ypos, self.xmax, self.ymax = bkgutils.getWorkArea()
         qtutils.initDisplay(parent=self, pos=(self.xpos, self.ypos), size=(self.xmax, self.ymax), frameless=True,
-                            noFocus=True, aot= True, opacity=0, caption=_CAPTION, icon=_SYSTEM_ICON)
+                            noFocus=True, aot=True, opacity=0, caption=_CAPTION, icon=None, hideIcon=True)
         self.checkInstances(_CAPTION)
         self.loadSettings()
         self.defineKeys()
@@ -103,11 +102,11 @@ class Window(QtWidgets.QMainWindow):
 
     def checkInstances(self, name):
         instances = 0
-        for win in pygetwindowmp.getWindowsWithTitle(name):
+        for win in pywinctl.getWindowsWithTitle(name):
             if ".py" not in win.title:
                 instances += 1
         if instances > 1:
-            sys.exit()  # Allow only one instance
+            QtWidgets.QApplication.quit()    # Allow only one instance
 
     def loadSettings(self):
 
@@ -244,7 +243,7 @@ class Window(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(int, int)
     def placeWindow(self, x, y):
         xAdj, yAdj, xGap, yGap, wGap, hGap = bkgutils.getWMAdjustments(_IS_MACOS, _LINE_WIDTH)
-        windows = pygetwindowmp.getWindowsAt(x + xAdj, y + yAdj)
+        windows = pywinctl.getWindowsAt(x + xAdj, y + yAdj)
         for win in windows:
             if win.title and win.title != _CAPTION and \
                     (not _IS_LINUX or (_IS_LINUX and '_NET_WM_WINDOW_TYPE_DESKTOP' not in bkgutils.getAttributes(win._hWnd))):
@@ -285,7 +284,7 @@ class Window(QtWidgets.QMainWindow):
     def mouseMove(self, event):
         if self.tidyMode and self.clicked:
             if self.prevPos is None or self.clickedWin is None:
-                self.clickedWin = pygetwindowmp.getActiveWindow()
+                self.clickedWin = pywinctl.getActiveWindow()
                 self.prevPos = self.clickedWin.topleft
             if self.prevPos != self.clickedWin.topleft:
                 self.highlightLabelSig.emit(int(event.x), int(event.y))
@@ -311,7 +310,7 @@ class Window(QtWidgets.QMainWindow):
     def on_move(self, x, y):
         if self.tidyMode and self.clicked:
             if self.prevPos is None or self.clickedWin is None:
-                self.clickedWin = pygetwindowmp.getActiveWindow()
+                self.clickedWin = pywinctl.getActiveWindow()
                 self.prevPos = self.clickedWin.topleft
             if self.prevPos != self.clickedWin.topleft:
                 self.highlightLabelSig.emit(int(x), int(y))
@@ -341,6 +340,9 @@ class Window(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def showHelp(self):
         self.msgBox.exec_()
+
+    def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
+        self.closeAll()
 
     @QtCore.pyqtSlot()
     def closeAll(self):
@@ -372,7 +374,6 @@ class Config(QtWidgets.QWidget):
         self.setGeometry(-1, -1, 1, 1)
 
         self.iconSelected = QtGui.QIcon(_ICON_SELECTED)
-        self.iconNotSelected = QtGui.QIcon(_ICON_NOT_SELECTED)
         self.iconGrid = {}
         for grid in self.config["Available_sections"].keys():
             self.iconGrid[grid] = QtGui.QIcon(utils.resource_path(__file__, "resources/" + grid + ".png"))

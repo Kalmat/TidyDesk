@@ -1,5 +1,5 @@
 kalmatools==0.0.1
-pygetwindowmp==0.0.9
+pywinctl
 PyQt5==5.15.4
 keyboard==0.13.5; sys_platform == 'windows'
 mouse==0.7.1; sys_platform == 'windows'
